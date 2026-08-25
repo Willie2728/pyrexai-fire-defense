@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrganizationType { PLATFORM FIRE_AGENCY MUNICIPALITY INSURER INSTALLER PROPERTY_OWNER COMMERCIAL_OPERATOR }
+enum MembershipRole { PLATFORM_ADMIN ORG_ADMIN INCIDENT_COMMANDER RESPONDER ANALYST INSTALLER TECHNICIAN PROPERTY_OWNER VIEWER }
+enum DeviceStatus { PROVISIONING ONLINE DEGRADED OFFLINE RETIRED }
+enum Severity { NOMINAL ADVISORY WARNING CRITICAL }
+enum IncidentState { CANDIDATE VERIFYING CONFIRMED RESPONDING CONTAINED CLOSED REJECTED }
+enum AlertState { OPEN ACKNOWLEDGED RESOLVED DISMISSED }
+enum IntegrationState { PLANNED CONFIGURING CONNECTED DEGRADED DISABLED }
+enum DefenseActionState { REQUESTED SAFETY_REVIEW STAGED AUTHORIZED EXECUTING COMPLETED ABORTED FAILED }
+
+model Organization {
+  id          String           @id @default(cuid())
+  name        String
+  type        OrganizationType
+  slug        String           @unique
+  memberships Membership[]
+  properties  Property[]
+  integrations Integration[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model User {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  displayName String
+  externalId  String?      @unique
+  disabledAt  DateTime?
+  memberships Membership[]
+  auditEvents AuditEvent[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Membership {
+  id             String         @id @default(cuid())
+  organizationId String
+  userId         String
+  role           MembershipRole
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+  @@unique([organizationId, userId, role])
+  @@index([userId])
+}
+
+model Property {
+  id             String       @id @default(cuid())
+  organizationId String
+  externalRef    String?      @unique
+  name           String
+  addressLine1   String
+  city           String
+  region         String
+  postalCode     String
+  latitude       Decimal      @db.Decimal(10, 7)
+  longitude      Decimal      @db.Decimal(10, 7)
+  timezone       String
+  riskScore      Int          @default(0)
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  zones          Zone[]
+  devices        Device[]
+  incidents      Incident[]
+  inspections    Inspection[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  @@index([organizationId])
+  @@index([latitude, longitude])
+}
+
+model Zone {
+  id         String      @id @default(cuid())
+  propertyId String
+  name       String
+  kind       String
+  floor      Int?
+  geometry   Json?
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  devices    Device[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  @@index([propertyId])
+}
+
+model Device {
+  id             String       @id @default(cuid())
+  propertyId     String
+  zoneId         String?
+  serialNumber   String       @unique
+  model          String
+  deviceType     String
+  status         DeviceStatus
+  firmware       String?
+  certificateRef String?      @unique
+  lastSeenAt     DateTime?
+  commissionedAt DateTime?
+  metadata       Json?
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  zone           Zone?        @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  readings       SensorReading[]
+  alerts         Alert[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  @@index([propertyId, status])
+  @@index([zoneId])
+}
+
+model SensorReading {
+  id         BigInt   @id @default(autoincrement())
+  deviceId   String
+  metric     String
+  value      Float
+  unit       String
+  confidence Float?
+  observedAt DateTime
+  metadata   Json?
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  @@index([deviceId, metric, observedAt(sort: Desc)])
+  @@index([observedAt(sort: Desc)])
+}
+
+model Incident {
+  id          String        @id @default(cuid())
+  propertyId  String?
+  externalRef String?       @unique
+  state       IncidentState
+  severity    Severity
+  title       String
+  description String?
+  latitude    Decimal?      @db.Decimal(10, 7)
+  longitude   Decimal?      @db.Decimal(10, 7)
+  confidence  Float?
+  simulated   Boolean       @default(false)
+  openedAt    DateTime      @default(now())
+  closedAt    DateTime?
+  property    Property?     @relation(fields: [propertyId], references: [id])
+  events      IncidentEvent[]
+  alerts      Alert[]
+  actions     DefenseAction[]
+  droneMissions DroneMission[]
+  @@index([state, severity])
+  @@index([propertyId, openedAt(sort: Desc)])
+}
+
+model IncidentEvent {
+  id         String   @id @default(cuid())
+  incidentId String
+  eventType  String
+  severity   Severity
+  source     String
+  payload    Json
+  occurredAt DateTime
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  @@index([incidentId, occurredAt])
+}
+
+model Alert {
+  id           String     @id @default(cuid())
+  incidentId   String?
+  deviceId     String?
+  state        AlertState
+  severity     Severity
+  title        String
+  detail       String
+  channelState Json?
+  occurredAt   DateTime
+  resolvedAt   DateTime?
+  incident     Incident?  @relation(fields: [incidentId], references: [id])
+  device       Device?    @relation(fields: [deviceId], references: [id])
+  @@index([state, severity, occurredAt(sort: Desc)])
+  @@index([incidentId])
+}
+
+model DefenseAction {
+  id                 String             @id @default(cuid())
+  incidentId         String
+  actionType         String
+  state              DefenseActionState
+  targetRef          String
+  requestedBy        String
+  authorizedBy       String?
+  safetyPolicy       Json
+  simulated          Boolean            @default(true)
+  physicalActuation  Boolean            @default(false)
+  requestedAt        DateTime           @default(now())
+  authorizedAt       DateTime?
+  completedAt        DateTime?
+  incident           Incident           @relation(fields: [incidentId], references: [id])
+  @@index([incidentId, requestedAt])
+}
+
+model DroneMission {
+  id          String   @id @default(cuid())
+  incidentId  String?
+  aircraftRef String
+  state       String
+  flightPlan  Json
+  constraints Json
+  simulated   Boolean  @default(true)
+  launchedAt  DateTime?
+  completedAt DateTime?
+  incident    Incident? @relation(fields: [incidentId], references: [id])
+  @@index([incidentId])
+}
+
+model Inspection {
+  id         String   @id @default(cuid())
+  propertyId String
+  kind       String
+  status     String
+  findings   Json
+  evidence   Json
+  performedAt DateTime
+  property   Property @relation(fields: [propertyId], references: [id])
+  @@index([propertyId, performedAt(sort: Desc)])
+}
+
+model Integration {
+  id             String           @id @default(cuid())
+  organizationId String
+  provider       String
+  kind           String
+  state          IntegrationState
+  configuration  Json
+  secretRef      String?
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  @@unique([organizationId, provider, kind])
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  action       String
+  targetType   String
+  targetId     String
+  organizationId String?
+  payload      Json
+  ipHash       String?
+  occurredAt   DateTime @default(now())
+  actor        User?    @relation(fields: [actorUserId], references: [id])
+  @@index([organizationId, occurredAt(sort: Desc)])
+  @@index([targetType, targetId])
+}

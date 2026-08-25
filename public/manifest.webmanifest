@@ -1,0 +1,13 @@
+{
+  "name": "PYREXAI Intelligent Fire Defense",
+  "short_name": "PYREXAI",
+  "description": "Property and community fire defense command network",
+  "start_url": "/app/command",
+  "display": "standalone",
+  "background_color": "#050807",
+  "theme_color": "#050807",
+  "orientation": "any",
+  "icons": [
+    { "src": "/pyrex-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

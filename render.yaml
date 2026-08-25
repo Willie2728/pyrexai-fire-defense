@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: pyrexai-fire-defense
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PYREXAI_MODE
+        value: simulation
